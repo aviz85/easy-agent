@@ -1,0 +1,1230 @@
+
+
+# File: concat.py
+
+import os
+
+def load_gitignore(gitignore_path):
+    ignored_paths = set()
+    if os.path.isfile(gitignore_path):
+        with open(gitignore_path, 'r') as gitignore:
+            for line in gitignore:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    ignored_paths.add(line)
+    return ignored_paths
+
+def is_ignored(path, ignored_paths):
+    for pattern in ignored_paths:
+        if pattern.startswith('/'):
+            pattern = pattern[1:]
+        if pattern.endswith('/'):
+            pattern = pattern[:-1]
+        if pattern in path:
+            return True
+    return False
+
+def concatenate_codebase_with_comments(src_directory, output_file, extensions, gitignore_path):
+    ignored_paths = load_gitignore(gitignore_path)
+    with open(output_file, 'w', encoding='utf-8') as outfile:
+        for subdir, _, files in os.walk(src_directory):
+            for file in files:
+                file_path = os.path.relpath(os.path.join(subdir, file), src_directory)
+                if any(file.endswith(ext) for ext in extensions) and not is_ignored(file_path, ignored_paths):
+                    full_file_path = os.path.join(src_directory, file_path)
+                    with open(full_file_path, 'r', encoding='utf-8') as infile:
+                        outfile.write(f"\n\n# File: {file_path}\n\n")
+                        outfile.write(infile.read())
+
+src_directory = '/Users/aviz/easy-agent'  # Replace with your codebase directory
+output_file = 'all_code.txt'  # Replace with your desired output file path
+extensions = ['.py', '.js', '.html', '.css']  # Add more extensions if needed
+
+concatenate_codebase_with_comments(src_directory, output_file, extensions, '.gitignore')
+
+# File: manage.py
+
+#!/usr/bin/env python
+"""Django's command-line utility for administrative tasks."""
+import os
+import sys
+
+
+def main():
+    """Run administrative tasks."""
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+    try:
+        from django.core.management import execute_from_command_line
+    except ImportError as exc:
+        raise ImportError(
+            "Couldn't import Django. Are you sure it's installed and "
+            "available on your PYTHONPATH environment variable? Did you "
+            "forget to activate a virtual environment?"
+        ) from exc
+    execute_from_command_line(sys.argv)
+
+
+if __name__ == '__main__':
+    main()
+
+
+# File: commission/services.py
+
+# commission/services.py
+
+from decimal import Decimal
+from django.utils import timezone
+from .models import MeetingSummary, Transaction, Product, CommissionStructure, Commission
+from .gateways import GroqGateway
+
+def calculate_commission(transaction):
+    commissions = []
+    commission_structures = CommissionStructure.objects.filter(
+        agreement__agent=transaction.agent,
+        product=transaction.product
+    )
+
+    for structure in commission_structures:
+        amount = Decimal(0)
+
+        if structure.commission_type == 'SCOPE':
+            # Example: Scope commission is a percentage of the transaction amount
+            amount = Decimal(transaction.details.get('amount', 0)) * (structure.rate / Decimal(100))
+        elif structure.commission_type == 'RECURRING':
+            # Example: Recurring commission is a fixed amount
+            amount = structure.rate
+        # Add more commission type calculations as needed
+
+        if amount > 0:
+            # Calculate expected payment date based on payment terms
+            if structure.payment_terms.payment_type == 'DAY_OF_MONTH':
+                current_date = timezone.now().date()
+                if current_date.day <= structure.payment_terms.day_of_month:
+                    expected_payment_date = current_date.replace(day=structure.payment_terms.day_of_month)
+                else:
+                    next_month = current_date.replace(day=28) + timezone.timedelta(days=4)
+                    expected_payment_date = next_month.replace(day=structure.payment_terms.day_of_month)
+            else:  # SPECIFIC_DATE
+                expected_payment_date = structure.payment_terms.specific_date
+                if expected_payment_date < timezone.now().date():
+                    expected_payment_date = expected_payment_date.replace(year=expected_payment_date.year + 1)
+
+            commission = Commission.objects.create(
+                transaction=transaction,
+                commission_structure=structure,
+                amount=amount,
+                expected_payment_date=expected_payment_date,
+                status='PENDING'
+            )
+            commissions.append(commission)
+
+    return commissions
+
+def process_meeting_summary(user, content):
+    groq_gateway = GroqGateway()
+    extracted_info = groq_gateway.extract_meeting_summary_info(content)
+    
+    # Add error handling for missing keys
+    client_name = extracted_info.get('client_name')
+    product_name = extracted_info.get('product_name')
+    amount = extracted_info.get('amount')
+    product_type = extracted_info.get('product_type')  # Add this line
+
+    if client_name and product_name and amount:
+        # Create MeetingSummary
+        summary = MeetingSummary.objects.create(
+            agent=user,
+            date=timezone.now().date(),
+            content=content,
+            processed_status='SUCCESS'
+        )
+        
+        # Create Transaction
+        product, _ = Product.objects.get_or_create(
+            name=product_name,
+            defaults={
+                'category': extracted_info.get('product_category', 'INSURANCE'),
+                'type': product_type  # Add this line
+            }
+        )
+        
+        # Update the product type if it's a new value
+        if product.type != product_type:
+            product.type = product_type
+            product.save()
+        
+        transaction = Transaction.objects.create(
+            agent=user,
+            client_name=client_name,
+            product=product,
+            date=timezone.now().date(),
+            status='PENDING',
+            details={'amount': amount}
+        )
+        
+        return summary, transaction
+    else:
+        # Handle the case where required information is missing
+        summary = MeetingSummary.objects.create(
+            agent=user,
+            date=timezone.now().date(),
+            content=content,
+            processed_status='FAILED'
+        )
+        return summary, None
+
+# File: commission/models.py
+
+# commission/models.py
+
+from django.db import models
+from django.contrib.auth.models import User
+
+class InsuranceCompany(models.Model):
+    name = models.CharField(max_length=100)
+    contact_info = models.TextField()
+
+    def __str__(self):
+        return self.name
+
+class Product(models.Model):
+    CATEGORY_CHOICES = [
+        ('INSURANCE', 'Insurance'),
+        ('PENSION', 'Pension'),
+        ('FINANCIAL', 'Financial'),
+    ]
+    name = models.CharField(max_length=100)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    type = models.CharField(max_length=100)
+    description = models.TextField()
+
+    def __str__(self):
+        return f"{self.name} ({self.get_category_display()})"
+
+class ProductTransactionSchema(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='transaction_schemas')
+    field_name = models.CharField(max_length=100)
+    field_type = models.CharField(max_length=50)
+    is_required = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.product.name} - {self.field_name}"
+
+class Agreement(models.Model):
+    agent = models.ForeignKey(User, on_delete=models.CASCADE)
+    company = models.ForeignKey(InsuranceCompany, on_delete=models.CASCADE)
+    start_date = models.DateField()
+    end_date = models.DateField(null=True, blank=True)
+    terms = models.JSONField()
+
+    def __str__(self):
+        return f"Agreement between {self.agent.username} and {self.company.name}"
+
+class PaymentTerms(models.Model):
+    PAYMENT_TYPE_CHOICES = [
+        ('DAY_OF_MONTH', 'Day of Month'),
+        ('SPECIFIC_DATE', 'Specific Date'),
+    ]
+    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPE_CHOICES)
+    day_of_month = models.IntegerField(null=True, blank=True)
+    specific_date = models.DateField(null=True, blank=True)
+
+    def __str__(self):
+        if self.payment_type == 'DAY_OF_MONTH':
+            return f"Day {self.day_of_month} of each month"
+        return f"Annually on {self.specific_date}"
+
+class CommissionStructure(models.Model):
+    COMMISSION_TYPE_CHOICES = [
+        ('SCOPE', 'Scope Commission'),
+        ('RECURRING', 'Recurring Commission'),
+        ('RETENTION', 'Retention Bonus'),
+        ('OVERRIDE', 'Override Commission'),
+        ('TRAIL', 'Trail Commission'),
+        ('RENEWAL', 'Renewal Commission'),
+    ]
+    agreement = models.ForeignKey(Agreement, on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    commission_type = models.CharField(max_length=20, choices=COMMISSION_TYPE_CHOICES)
+    rate = models.DecimalField(max_digits=5, decimal_places=2)
+    payment_terms = models.ForeignKey(PaymentTerms, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"{self.get_commission_type_display()} for {self.product.name}"
+
+class Transaction(models.Model):
+    agent = models.ForeignKey(User, on_delete=models.CASCADE)
+    client_name = models.CharField(max_length=100)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    date = models.DateField()
+    status = models.CharField(max_length=50)
+    details = models.JSONField()
+
+    def __str__(self):
+        return f"Transaction for {self.client_name} - {self.product.name}"
+
+class Commission(models.Model):
+    transaction = models.ForeignKey(Transaction, on_delete=models.CASCADE)
+    commission_structure = models.ForeignKey(CommissionStructure, on_delete=models.CASCADE)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    expected_payment_date = models.DateField()
+    status = models.CharField(max_length=50)
+
+    def __str__(self):
+        return f"Commission for {self.transaction}"
+
+class MeetingSummary(models.Model):
+    agent = models.ForeignKey(User, on_delete=models.CASCADE)
+    date = models.DateField()
+    content = models.TextField()
+    processed_status = models.CharField(max_length=50)
+
+    def __str__(self):
+        return f"Meeting Summary for {self.agent.username} on {self.date}"
+
+# File: commission/serializers.py
+
+# commission/serializers.py
+
+from rest_framework import serializers
+from .models import InsuranceCompany, Product, ProductTransactionSchema, Agreement, PaymentTerms, CommissionStructure, Transaction, Commission, MeetingSummary
+from django.contrib.auth.models import User
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'first_name', 'last_name']
+
+class InsuranceCompanySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InsuranceCompany
+        fields = '__all__'
+
+class ProductSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Product
+        fields = '__all__'
+
+class ProductTransactionSchemaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductTransactionSchema
+        fields = '__all__'
+
+class AgreementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Agreement
+        fields = '__all__'
+
+class PaymentTermsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentTerms
+        fields = '__all__'
+
+class CommissionStructureSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CommissionStructure
+        fields = '__all__'
+
+class TransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Transaction
+        fields = '__all__'
+
+class CommissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Commission
+        fields = '__all__'
+
+class MeetingSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MeetingSummary
+        fields = '__all__'
+
+class CalculateCommissionSerializer(serializers.Serializer):
+    transaction_id = serializers.IntegerField()
+
+
+# File: commission/test_simple.py
+
+from django.test import TestCase
+
+class SimpleTest(TestCase):
+    def test_basic_addition(self):
+        self.assertEqual(1 + 1, 2)
+
+
+# File: commission/__init__.py
+
+
+
+# File: commission/apps.py
+
+from django.apps import AppConfig
+
+
+class CommissionConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'commission'
+
+
+# File: commission/admin.py
+
+from django.contrib import admin
+
+# Register your models here.
+
+
+# File: commission/gateways.py
+
+# commission/gateways.py
+
+import json
+from groq import Groq
+from django.conf import settings
+
+class GroqGateway:
+    def __init__(self):
+        self.client = Groq(api_key=settings.GROQ_API_KEY)
+
+    def extract_meeting_summary_info(self, content):
+        prompt = f"""
+        Extract the following information from the meeting summary:
+        - Client Name
+        - Product Name
+        - Product Category (e.g., INSURANCE, INVESTMENT)
+        - Product Type (e.g., Term, Whole Life, etc.)
+        - Amount
+
+        Meeting Summary:
+        {content}
+
+        Please provide the extracted information in JSON format.
+        """
+
+        response = self.client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        # Extract the content from the response
+        json_str = response.choices[0].message.content.strip()
+        
+        # Try to parse the entire response as JSON first
+        try:
+            extracted_info = json.loads(json_str)
+        except json.JSONDecodeError:
+            # If that fails, try to extract JSON from markdown code blocks
+            try:
+                json_str = json_str.split('```')[1]  # This works for both ```json and ``` without a language specifier
+                extracted_info = json.loads(json_str)
+            except (IndexError, json.JSONDecodeError):
+                # If JSON parsing fails, return a default structure
+                extracted_info = {
+                    "client_name": "Unknown",
+                    "product_name": "Unknown",
+                    "product_category": "Unknown",
+                    "product_type": "Unknown",
+                    "amount": 0
+                }
+
+        return extracted_info
+
+# File: commission/tests.py
+
+from django.test import TestCase
+
+# Create your tests here.
+
+
+# File: commission/urls.py
+
+# commission/urls.py
+
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import UserViewSet, InsuranceCompanyViewSet, ProductViewSet, ProductTransactionSchemaViewSet, AgreementViewSet, PaymentTermsViewSet, CommissionStructureViewSet, TransactionViewSet, CommissionViewSet, MeetingSummaryViewSet
+from .views import CustomAuthToken
+from .views import CalculateCommissionView
+from .views import SubmitMeetingSummaryView
+
+
+router = DefaultRouter()
+router.register(r'users', UserViewSet)
+router.register(r'insurance-companies', InsuranceCompanyViewSet)
+router.register(r'products', ProductViewSet)
+router.register(r'product-transaction-schemas', ProductTransactionSchemaViewSet)
+router.register(r'agreements', AgreementViewSet)
+router.register(r'payment-terms', PaymentTermsViewSet)
+router.register(r'commission-structures', CommissionStructureViewSet)
+router.register(r'transactions', TransactionViewSet)
+router.register(r'commissions', CommissionViewSet)
+router.register(r'meeting-summaries', MeetingSummaryViewSet)
+
+urlpatterns = [
+    path('', include(router.urls)),
+    path('api-token-auth/', CustomAuthToken.as_view()),
+    path('calculate-commission/', CalculateCommissionView.as_view(), name='calculate-commission'),
+    path('submit-meeting-summary/', SubmitMeetingSummaryView.as_view(), name='submit-meeting-summary'),
+
+]
+
+# File: commission/views.py
+
+# commission/views.py
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from .services import process_meeting_summary
+from .serializers import MeetingSummarySerializer, TransactionSerializer
+
+class SubmitMeetingSummaryView(APIView):
+    def post(self, request):
+        content = request.data.get('content')
+        if not content:
+            return Response({'error': 'Meeting summary content is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        result = process_meeting_summary(request.user, content)
+        summary, transaction = result[:2]  # Take only the first two values
+        
+        if not transaction:
+            # If no transaction was created, create one with basic information
+            transaction = Transaction.objects.create(
+                agent=request.user,
+                client_name="Unknown",  # You might want to extract this from the summary
+                status="PENDING"  # Or any default status you prefer
+            )
+        
+        response_data = {
+            'summary': MeetingSummarySerializer(summary).data,
+            'transaction': TransactionSerializer(transaction).data
+        }
+
+        return Response(response_data, status=status.HTTP_201_CREATED)
+
+from rest_framework import viewsets
+from .models import InsuranceCompany, Product, ProductTransactionSchema, Agreement, PaymentTerms, CommissionStructure, Transaction, Commission, MeetingSummary
+from .serializers import UserSerializer, InsuranceCompanySerializer, ProductSerializer, ProductTransactionSchemaSerializer, AgreementSerializer, PaymentTermsSerializer, CommissionStructureSerializer, TransactionSerializer, CommissionSerializer, MeetingSummarySerializer
+from django.contrib.auth.models import User
+
+from rest_framework.authtoken.views import ObtainAuthToken
+from rest_framework.authtoken.models import Token
+from rest_framework.response import Response
+
+from .services import calculate_commission
+from .serializers import CalculateCommissionSerializer, CommissionSerializer
+
+class CalculateCommissionView(APIView):
+    def post(self, request):
+        serializer = CalculateCommissionSerializer(data=request.data)
+        if serializer.is_valid():
+            transaction_id = serializer.validated_data['transaction_id']
+            try:
+                transaction = Transaction.objects.get(id=transaction_id)
+            except Transaction.DoesNotExist:
+                return Response({'error': 'Transaction not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            commissions = calculate_commission(transaction)
+            commission_serializer = CommissionSerializer(commissions, many=True)
+            return Response(commission_serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CustomAuthToken(ObtainAuthToken):
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data['user']
+        token, created = Token.objects.get_or_create(user=user)
+        return Response({
+            'token': token.key,
+            'user_id': user.pk,
+            'email': user.email
+        })
+
+
+class UserViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+
+class InsuranceCompanyViewSet(viewsets.ModelViewSet):
+    queryset = InsuranceCompany.objects.all()
+    serializer_class = InsuranceCompanySerializer
+
+class ProductViewSet(viewsets.ModelViewSet):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+
+class ProductTransactionSchemaViewSet(viewsets.ModelViewSet):
+    queryset = ProductTransactionSchema.objects.all()
+    serializer_class = ProductTransactionSchemaSerializer
+
+class AgreementViewSet(viewsets.ModelViewSet):
+    queryset = Agreement.objects.all()
+    serializer_class = AgreementSerializer
+
+class PaymentTermsViewSet(viewsets.ModelViewSet):
+    queryset = PaymentTerms.objects.all()
+    serializer_class = PaymentTermsSerializer
+
+class CommissionStructureViewSet(viewsets.ModelViewSet):
+    queryset = CommissionStructure.objects.all()
+    serializer_class = CommissionStructureSerializer
+
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import SearchFilter, OrderingFilter
+
+class TransactionViewSet(viewsets.ModelViewSet):
+    queryset = Transaction.objects.all()
+    serializer_class = TransactionSerializer
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['agent', 'product', 'status', 'date']
+    search_fields = ['client_name']
+    ordering_fields = ['date', 'status']
+
+class CommissionViewSet(viewsets.ModelViewSet):
+    queryset = Commission.objects.all()
+    serializer_class = CommissionSerializer
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['transaction__agent', 'commission_structure__product', 'status', 'expected_payment_date']
+    search_fields = ['transaction__client_name']
+    ordering_fields = ['expected_payment_date', 'amount', 'status']
+
+class MeetingSummaryViewSet(viewsets.ModelViewSet):
+    queryset = MeetingSummary.objects.all()
+    serializer_class = MeetingSummarySerializer
+
+# File: commission/migrations/__init__.py
+
+
+
+# File: commission/migrations/0001_initial.py
+
+# Generated by Django 5.0.7 on 2024-07-29 12:47
+
+import django.db.models.deletion
+from django.conf import settings
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    initial = True
+
+    dependencies = [
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+    ]
+
+    operations = [
+        migrations.CreateModel(
+            name='InsuranceCompany',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('name', models.CharField(max_length=100)),
+                ('contact_info', models.TextField()),
+            ],
+        ),
+        migrations.CreateModel(
+            name='PaymentTerms',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('payment_type', models.CharField(choices=[('DAY_OF_MONTH', 'Day of Month'), ('SPECIFIC_DATE', 'Specific Date')], max_length=20)),
+                ('day_of_month', models.IntegerField(blank=True, null=True)),
+                ('specific_date', models.DateField(blank=True, null=True)),
+            ],
+        ),
+        migrations.CreateModel(
+            name='Product',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('name', models.CharField(max_length=100)),
+                ('category', models.CharField(choices=[('INSURANCE', 'Insurance'), ('PENSION', 'Pension'), ('FINANCIAL', 'Financial')], max_length=20)),
+                ('type', models.CharField(max_length=100)),
+                ('description', models.TextField()),
+            ],
+        ),
+        migrations.CreateModel(
+            name='Agreement',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('start_date', models.DateField()),
+                ('end_date', models.DateField(blank=True, null=True)),
+                ('terms', models.JSONField()),
+                ('agent', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='commission.insurancecompany')),
+            ],
+        ),
+        migrations.CreateModel(
+            name='CommissionStructure',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('commission_type', models.CharField(choices=[('SCOPE', 'Scope Commission'), ('RECURRING', 'Recurring Commission'), ('RETENTION', 'Retention Bonus'), ('OVERRIDE', 'Override Commission'), ('TRAIL', 'Trail Commission'), ('RENEWAL', 'Renewal Commission')], max_length=20)),
+                ('rate', models.DecimalField(decimal_places=2, max_digits=5)),
+                ('agreement', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='commission.agreement')),
+                ('payment_terms', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='commission.paymentterms')),
+                ('product', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='commission.product')),
+            ],
+        ),
+        migrations.CreateModel(
+            name='MeetingSummary',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('date', models.DateField()),
+                ('content', models.TextField()),
+                ('processed_status', models.CharField(max_length=50)),
+                ('agent', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+            ],
+        ),
+        migrations.CreateModel(
+            name='ProductTransactionSchema',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('field_name', models.CharField(max_length=100)),
+                ('field_type', models.CharField(max_length=50)),
+                ('is_required', models.BooleanField(default=False)),
+                ('product', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='transaction_schemas', to='commission.product')),
+            ],
+        ),
+        migrations.CreateModel(
+            name='Transaction',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('client_name', models.CharField(max_length=100)),
+                ('date', models.DateField()),
+                ('status', models.CharField(max_length=50)),
+                ('details', models.JSONField()),
+                ('agent', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                ('product', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='commission.product')),
+            ],
+        ),
+        migrations.CreateModel(
+            name='Commission',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('amount', models.DecimalField(decimal_places=2, max_digits=10)),
+                ('expected_payment_date', models.DateField()),
+                ('status', models.CharField(max_length=50)),
+                ('commission_structure', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='commission.commissionstructure')),
+                ('transaction', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='commission.transaction')),
+            ],
+        ),
+    ]
+
+
+# File: commission/tests/test_services.py
+
+# commission/tests/test_services.py
+
+from django.test import TestCase
+from django.contrib.auth.models import User
+from commission.services import process_meeting_summary
+from commission.models import MeetingSummary, Transaction
+from unittest.mock import patch
+import json
+
+class MeetingSummaryTestCase(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='12345')
+
+    @patch('commission.gateways.GroqGateway.extract_meeting_summary_info')
+    def test_process_meeting_summary(self, mock_extract):
+        # Mock the GroqGateway response
+        mock_extract.return_value = {
+            "client_name": "John Doe",
+            "product_name": "Life Insurance",
+            "product_category": "INSURANCE",
+            "product_type": "Life",
+            "amount": 5000.00
+        }
+
+        content = """
+        Meeting Summary:
+        Had a great meeting with John Doe today. He's interested in our Life Insurance product.
+        We discussed a coverage amount of $5,000.00. John seems very keen on long-term protection for his family.
+        """
+
+        summary, transaction = process_meeting_summary(self.user, content)
+
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary.processed_status, 'SUCCESS')
+        
+        self.assertIsNotNone(transaction)
+        self.assertEqual(transaction.client_name, 'John Doe')
+        self.assertEqual(transaction.product.name, 'Life Insurance')
+        self.assertEqual(transaction.product.category, 'INSURANCE')
+        self.assertEqual(transaction.product.type, 'Life')
+        self.assertEqual(transaction.details['amount'], 5000.00)
+
+# commission/tests/test_views.py
+
+# File: commission/tests/__init__.py
+
+
+
+# File: commission/tests/test_views.py
+
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APITestCase
+from django.contrib.auth.models import User
+from commission.models import MeetingSummary, Transaction
+from unittest.mock import patch
+
+class SubmitMeetingSummaryViewTestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='12345')
+        self.client.force_authenticate(user=self.user)
+
+    @patch('commission.gateways.GroqGateway.extract_meeting_summary_info')
+    def test_submit_meeting_summary(self, mock_extract):
+        # Mock the GroqGateway response
+        mock_extract.return_value = {
+            "client_name": "Jane Smith",
+            "product_name": "Term Insurance",
+            "product_category": "INSURANCE",
+            "product_type": "Term",
+            "amount": 10000.00
+        }
+
+        url = reverse('submit-meeting-summary')
+        data = {
+            'content': """
+            Meeting Summary:
+            Met with Jane Smith today. She's looking for short-term coverage.
+            We discussed our Term Insurance product with a coverage of $10,000.00.
+            Jane is considering this option for the next few years.
+            """
+        }
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('summary', response.data)
+        self.assertIn('transaction', response.data)
+        
+        self.assertEqual(MeetingSummary.objects.count(), 1)
+        self.assertEqual(Transaction.objects.count(), 1)
+        
+        transaction = Transaction.objects.first()
+        self.assertEqual(transaction.client_name, 'Jane Smith')
+        self.assertEqual(transaction.product.name, 'Term Insurance')
+        self.assertEqual(transaction.details['amount'], 10000.00)
+
+
+# File: commission/tests/test_models.py
+
+# commission/tests/test_models.py
+
+from django.test import TestCase
+from django.contrib.auth.models import User
+from commission.models import InsuranceCompany, Product, Agreement, PaymentTerms, CommissionStructure, Transaction, Commission
+from django.utils import timezone
+
+class ModelTestCase(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='12345')
+        self.company = InsuranceCompany.objects.create(name='Test Insurance Co', contact_info='Contact Info')
+        self.product = Product.objects.create(name='Test Product', category='INSURANCE', type='Life', description='Test Description')
+        self.agreement = Agreement.objects.create(
+            agent=self.user,
+            company=self.company,
+            start_date=timezone.now().date(),
+            terms={'test': 'terms'}
+        )
+        self.payment_terms = PaymentTerms.objects.create(
+            payment_type='DAY_OF_MONTH',
+            day_of_month=15
+        )
+        self.commission_structure = CommissionStructure.objects.create(
+            agreement=self.agreement,
+            product=self.product,
+            commission_type='SCOPE',
+            rate=10.00,
+            payment_terms=self.payment_terms
+        )
+
+    def test_insurance_company_creation(self):
+        self.assertTrue(isinstance(self.company, InsuranceCompany))
+        self.assertEqual(self.company.__str__(), self.company.name)
+
+    def test_product_creation(self):
+        self.assertTrue(isinstance(self.product, Product))
+        self.assertEqual(self.product.__str__(), f"{self.product.name} (Insurance)")
+
+    def test_agreement_creation(self):
+        self.assertTrue(isinstance(self.agreement, Agreement))
+        self.assertEqual(self.agreement.__str__(), f"Agreement between testuser and Test Insurance Co")
+
+    def test_commission_structure_creation(self):
+        self.assertTrue(isinstance(self.commission_structure, CommissionStructure))
+        self.assertEqual(self.commission_structure.__str__(), "Scope Commission for Test Product")
+
+    def test_transaction_creation(self):
+        transaction = Transaction.objects.create(
+            agent=self.user,
+            client_name='Test Client',
+            product=self.product,
+            date=timezone.now().date(),
+            status='COMPLETED',
+            details={'amount': 1000}
+        )
+        self.assertTrue(isinstance(transaction, Transaction))
+        self.assertEqual(transaction.__str__(), "Transaction for Test Client - Test Product")
+
+    def test_commission_creation(self):
+        transaction = Transaction.objects.create(
+            agent=self.user,
+            client_name='Test Client',
+            product=self.product,
+            date=timezone.now().date(),
+            status='COMPLETED',
+            details={'amount': 1000}
+        )
+        commission = Commission.objects.create(
+            transaction=transaction,
+            commission_structure=self.commission_structure,
+            amount=100.00,
+            expected_payment_date=timezone.now().date(),
+            status='PENDING'
+        )
+        self.assertTrue(isinstance(commission, Commission))
+        self.assertEqual(commission.__str__(), f"Commission for {transaction}")
+
+# commission/tests/test_services.py
+
+from django.test import TestCase
+from django.contrib.auth.models import User
+from commission.models import InsuranceCompany, Product, Agreement, PaymentTerms, CommissionStructure, Transaction
+from commission.services import calculate_commission
+from django.utils import timezone
+
+class CalculateCommissionTestCase(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='12345')
+        self.company = InsuranceCompany.objects.create(name='Test Insurance Co', contact_info='Contact Info')
+        self.product = Product.objects.create(name='Test Product', category='INSURANCE', type='Life', description='Test Description')
+        self.agreement = Agreement.objects.create(
+            agent=self.user,
+            company=self.company,
+            start_date=timezone.now().date(),
+            terms={'test': 'terms'}
+        )
+        self.payment_terms = PaymentTerms.objects.create(
+            payment_type='DAY_OF_MONTH',
+            day_of_month=15
+        )
+        self.commission_structure = CommissionStructure.objects.create(
+            agreement=self.agreement,
+            product=self.product,
+            commission_type='SCOPE',
+            rate=10.00,
+            payment_terms=self.payment_terms
+        )
+        self.transaction = Transaction.objects.create(
+            agent=self.user,
+            client_name='Test Client',
+            product=self.product,
+            date=timezone.now().date(),
+            status='COMPLETED',
+            details={'amount': 1000}
+        )
+
+    def test_calculate_commission(self):
+        commissions = calculate_commission(self.transaction)
+        self.assertEqual(len(commissions), 1)
+        commission = commissions[0]
+        self.assertEqual(commission.amount, 100.00)  # 10% of 1000
+        self.assertEqual(commission.status, 'PENDING')
+        self.assertEqual(commission.commission_structure, self.commission_structure)
+
+# commission/tests/test_views.py
+
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APITestCase
+from django.contrib.auth.models import User
+from commission.models import InsuranceCompany, Product, Transaction
+
+class APIViewTestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='12345')
+        self.client.login(username='testuser', password='12345')
+        self.company = InsuranceCompany.objects.create(name='Test Insurance Co', contact_info='Contact Info')
+        self.product = Product.objects.create(name='Test Product', category='INSURANCE', type='Life', description='Test Description')
+
+    def test_create_transaction(self):
+        url = reverse('transaction-list')
+        data = {
+            'agent': self.user.id,
+            'client_name': 'Test Client',
+            'product': self.product.id,
+            'date': '2023-05-01',
+            'status': 'COMPLETED',
+            'details': {'amount': 1000}
+        }
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Transaction.objects.count(), 1)
+        self.assertEqual(Transaction.objects.get().client_name, 'Test Client')
+
+    def test_calculate_commission(self):
+        transaction = Transaction.objects.create(
+            agent=self.user,
+            client_name='Test Client',
+            product=self.product,
+            date='2023-05-01',
+            status='COMPLETED',
+            details={'amount': 1000}
+        )
+        url = reverse('calculate-commission')
+        data = {'transaction_id': transaction.id}
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # Add more assertions based on your expected response
+
+    def test_list_transactions(self):
+        Transaction.objects.create(
+            agent=self.user,
+            client_name='Test Client 1',
+            product=self.product,
+            date='2023-05-01',
+            status='COMPLETED',
+            details={'amount': 1000}
+        )
+        Transaction.objects.create(
+            agent=self.user,
+            client_name='Test Client 2',
+            product=self.product,
+            date='2023-05-02',
+            status='PENDING',
+            details={'amount': 2000}
+        )
+        url = reverse('transaction-list')
+        response = self.client.get(url, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+
+    def test_filter_transactions(self):
+        Transaction.objects.create(
+            agent=self.user,
+            client_name='Test Client 1',
+            product=self.product,
+            date='2023-05-01',
+            status='COMPLETED',
+            details={'amount': 1000}
+        )
+        Transaction.objects.create(
+            agent=self.user,
+            client_name='Test Client 2',
+            product=self.product,
+            date='2023-05-02',
+            status='PENDING',
+            details={'amount': 2000}
+        )
+        url = reverse('transaction-list')
+        response = self.client.get(f"{url}?status=COMPLETED", format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['client_name'], 'Test Client 1')
+
+# File: core/asgi.py
+
+"""
+ASGI config for core project.
+
+It exposes the ASGI callable as a module-level variable named ``application``.
+
+For more information on this file, see
+https://docs.djangoproject.com/en/5.0/howto/deployment/asgi/
+"""
+
+import os
+
+from django.core.asgi import get_asgi_application
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+
+application = get_asgi_application()
+
+
+# File: core/__init__.py
+
+
+
+# File: core/settings.py
+
+"""
+Django settings for core project.
+
+Generated by 'django-admin startproject' using Django 5.0.7.
+
+For more information on this file, see
+https://docs.djangoproject.com/en/5.0/topics/settings/
+
+For the full list of settings and their values, see
+https://docs.djangoproject.com/en/5.0/ref/settings/
+"""
+import dotenv
+import os
+
+dotenv.load_dotenv()
+
+from pathlib import Path
+
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+# Quick-start development settings - unsuitable for production
+# See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
+
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = os.getenv('SECRET_KEY')
+
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
+
+ALLOWED_HOSTS = []
+
+
+# Application definition
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    'rest_framework',
+    'corsheaders',
+    'commission',
+    'rest_framework.authtoken',
+    'django_filters',
+]
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
+    'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
+}
+
+MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', False)
+
+ROOT_URLCONF = 'core.urls'
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = 'core.wsgi.application'
+
+
+# Database
+# https://docs.djangoproject.com/en/5.0/ref/settings/#databases
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
+
+
+# Password validation
+# https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
+
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
+
+
+# Internationalization
+# https://docs.djangoproject.com/en/5.0/topics/i18n/
+
+LANGUAGE_CODE = 'en-us'
+
+TIME_ZONE = 'UTC'
+
+USE_I18N = True
+
+USE_TZ = True
+
+
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/5.0/howto/static-files/
+
+STATIC_URL = 'static/'
+
+# Default primary key field type
+# https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# File: core/urls.py
+
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('api/', include('commission.urls')),
+]
+
+# File: core/wsgi.py
+
+"""
+WSGI config for core project.
+
+It exposes the WSGI callable as a module-level variable named ``application``.
+
+For more information on this file, see
+https://docs.djangoproject.com/en/5.0/howto/deployment/wsgi/
+"""
+
+import os
+
+from django.core.wsgi import get_wsgi_application
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+
+application = get_wsgi_application()
