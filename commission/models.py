@@ -34,11 +34,17 @@ class ProductTransactionSchema(models.Model):
         return f"{self.product.name} - {self.field_name}"
 
 class Agreement(models.Model):
+    STATUS_CHOICES = [
+        ('ACTIVE', 'Active'),
+        ('INACTIVE', 'Inactive'),
+        ('EXPIRED', 'Expired'),
+    ]
     agent = models.ForeignKey(User, on_delete=models.CASCADE)
     company = models.ForeignKey(InsuranceCompany, on_delete=models.CASCADE)
     start_date = models.DateField()
     end_date = models.DateField(null=True, blank=True)
     terms = models.JSONField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='ACTIVE')
 
     def __str__(self):
         return f"Agreement between {self.agent.username} and {self.company.name}"
@@ -66,7 +72,7 @@ class CommissionStructure(models.Model):
         ('TRAIL', 'Trail Commission'),
         ('RENEWAL', 'Renewal Commission'),
     ]
-    agreement = models.ForeignKey(Agreement, on_delete=models.CASCADE)
+    agreement = models.ForeignKey(Agreement, on_delete=models.CASCADE, related_name='commission_structures')
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     commission_type = models.CharField(max_length=20, choices=COMMISSION_TYPE_CHOICES)
     rate = models.DecimalField(max_digits=5, decimal_places=2)

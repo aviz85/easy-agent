@@ -1,9 +1,12 @@
 # commission/serializers.py
 
 from rest_framework import serializers
-from .models import InsuranceCompany, Product, ProductTransactionSchema, Agreement, PaymentTerms, CommissionStructure, Transaction, Commission, MeetingSummary
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
+from .models import (
+    InsuranceCompany, Product, ProductTransactionSchema, Agreement,
+    PaymentTerms, CommissionStructure, Transaction, Commission, MeetingSummary
+)
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -56,7 +59,7 @@ class ChangePasswordSerializer(serializers.Serializer):
 class InsuranceCompanySerializer(serializers.ModelSerializer):
     class Meta:
         model = InsuranceCompany
-        fields = '__all__'
+        fields = ['id', 'name', 'contact_info']
 
 class ProductSerializer(serializers.ModelSerializer):
     class Meta:
@@ -68,20 +71,78 @@ class ProductTransactionSchemaSerializer(serializers.ModelSerializer):
         model = ProductTransactionSchema
         fields = '__all__'
 
-class AgreementSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Agreement
-        fields = '__all__'
-
 class PaymentTermsSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentTerms
-        fields = '__all__'
+        fields = ['id', 'payment_type', 'day_of_month', 'specific_date']
 
 class CommissionStructureSerializer(serializers.ModelSerializer):
+    payment_terms = PaymentTermsSerializer()
+
     class Meta:
         model = CommissionStructure
-        fields = '__all__'
+        fields = ['id', 'product', 'commission_type', 'rate', 'payment_terms']
+
+    def create(self, validated_data):
+        payment_terms_data = validated_data.pop('payment_terms')
+        payment_terms = PaymentTerms.objects.create(**payment_terms_data)
+        return CommissionStructure.objects.create(payment_terms=payment_terms, **validated_data)
+
+class AgreementSerializer(serializers.ModelSerializer):
+    company = InsuranceCompanySerializer()
+    commission_structures = CommissionStructureSerializer(many=True)
+
+    class Meta:
+        model = Agreement
+        fields = ['id', 'company', 'start_date', 'end_date', 'terms', 'status', 'commission_structures']
+
+    def validate(self, data):
+        errors = {}
+        if 'end_date' in data and data['start_date'] > data['end_date']:
+            errors['end_date'] = "End date must be after start date."
+        if 'commission_structures' not in data or len(data.get('commission_structures', [])) == 0:
+            errors['commission_structures'] = "At least one commission structure is required."
+        if errors:
+            raise serializers.ValidationError(errors)
+        return data
+
+    def create(self, validated_data):
+        company_data = validated_data.pop('company')
+        commission_structures_data = validated_data.pop('commission_structures')
+        
+        company, _ = InsuranceCompany.objects.get_or_create(name=company_data['name'], defaults=company_data)
+        
+        agreement = Agreement.objects.create(company=company, **validated_data)
+        
+        for structure_data in commission_structures_data:
+            payment_terms_data = structure_data.pop('payment_terms')
+            payment_terms = PaymentTerms.objects.create(**payment_terms_data)
+            CommissionStructure.objects.create(agreement=agreement, payment_terms=payment_terms, **structure_data)
+        
+        return agreement
+
+    def update(self, instance, validated_data):
+        company_data = validated_data.pop('company', None)
+        commission_structures_data = validated_data.pop('commission_structures', None)
+
+        if company_data:
+            company, _ = InsuranceCompany.objects.get_or_create(name=company_data['name'], defaults=company_data)
+            instance.company = company
+
+        instance.start_date = validated_data.get('start_date', instance.start_date)
+        instance.end_date = validated_data.get('end_date', instance.end_date)
+        instance.terms = validated_data.get('terms', instance.terms)
+        instance.status = validated_data.get('status', instance.status)
+        instance.save()
+
+        if commission_structures_data is not None:
+            instance.commission_structures.all().delete()
+            for structure_data in commission_structures_data:
+                payment_terms_data = structure_data.pop('payment_terms')
+                payment_terms = PaymentTerms.objects.create(**payment_terms_data)
+                CommissionStructure.objects.create(agreement=instance, payment_terms=payment_terms, **structure_data)
+
+        return instance
 
 class TransactionSerializer(serializers.ModelSerializer):
     class Meta:

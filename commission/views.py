@@ -1,15 +1,32 @@
 # commission/views.py
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .services import process_meeting_summary
-from .serializers import MeetingSummarySerializer, TransactionSerializer, UserProfileSerializer, ChangePasswordSerializer
+from .services import process_meeting_summary, calculate_commission
+from .serializers import MeetingSummarySerializer, TransactionSerializer, UserProfileSerializer, ChangePasswordSerializer, CommissionSerializer
 from rest_framework import generics, permissions, status
-from .serializers import UserRegistrationSerializer
+from .serializers import CalculateCommissionSerializer, UserRegistrationSerializer, UserSerializer, InsuranceCompanySerializer, ProductSerializer, ProductTransactionSchemaSerializer, AgreementSerializer, PaymentTermsSerializer, CommissionStructureSerializer, TransactionSerializer, CommissionSerializer, MeetingSummarySerializer
 from django.core.mail import send_mail
 from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
+from .models import Agreement, InsuranceCompany, CommissionStructure, Product, ProductTransactionSchema, PaymentTerms, Transaction, Commission, MeetingSummary
+
+from rest_framework import viewsets
+from django.contrib.auth.models import User
+
+from rest_framework.authtoken.views import ObtainAuthToken
+from rest_framework.authtoken.models import Token
+from rest_framework.response import Response
+
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import SearchFilter, OrderingFilter
 
 
+class AgreementListView(generics.ListAPIView):
+    serializer_class = AgreementSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Agreement.objects.filter(agent=self.request.user, status='ACTIVE')
 
 class UserRegistrationView(generics.CreateAPIView):
     serializer_class = UserRegistrationSerializer
@@ -95,18 +112,6 @@ class SubmitMeetingSummaryView(APIView):
 
         return Response(response_data, status=status.HTTP_201_CREATED)
 
-from rest_framework import viewsets
-from .models import InsuranceCompany, Product, ProductTransactionSchema, Agreement, PaymentTerms, CommissionStructure, Transaction, Commission, MeetingSummary
-from .serializers import UserSerializer, InsuranceCompanySerializer, ProductSerializer, ProductTransactionSchemaSerializer, AgreementSerializer, PaymentTermsSerializer, CommissionStructureSerializer, TransactionSerializer, CommissionSerializer, MeetingSummarySerializer
-from django.contrib.auth.models import User
-
-from rest_framework.authtoken.views import ObtainAuthToken
-from rest_framework.authtoken.models import Token
-from rest_framework.response import Response
-
-from .services import calculate_commission
-from .serializers import CalculateCommissionSerializer, CommissionSerializer
-
 class CalculateCommissionView(APIView):
     def post(self, request):
         serializer = CalculateCommissionSerializer(data=request.data)
@@ -121,10 +126,6 @@ class CalculateCommissionView(APIView):
             commission_serializer = CommissionSerializer(commissions, many=True)
             return Response(commission_serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-from rest_framework import status
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
 
 class CustomAuthToken(ObtainAuthToken):
     def post(self, request, *args, **kwargs):
@@ -167,8 +168,33 @@ class ProductTransactionSchemaViewSet(viewsets.ModelViewSet):
     serializer_class = ProductTransactionSchemaSerializer
 
 class AgreementViewSet(viewsets.ModelViewSet):
-    queryset = Agreement.objects.all()
     serializer_class = AgreementSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['company']
+
+    def get_queryset(self):
+        return Agreement.objects.filter(agent=self.request.user, status='ACTIVE')
+
+    def perform_create(self, serializer):
+        serializer.save(agent=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if serializer.is_valid():
+            self.perform_update(serializer)
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class PaymentTermsViewSet(viewsets.ModelViewSet):
     queryset = PaymentTerms.objects.all()
@@ -177,9 +203,6 @@ class PaymentTermsViewSet(viewsets.ModelViewSet):
 class CommissionStructureViewSet(viewsets.ModelViewSet):
     queryset = CommissionStructure.objects.all()
     serializer_class = CommissionStructureSerializer
-
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.filters import SearchFilter, OrderingFilter
 
 class TransactionViewSet(viewsets.ModelViewSet):
     queryset = Transaction.objects.all()
