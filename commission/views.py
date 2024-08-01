@@ -9,6 +9,8 @@ from django.core.mail import send_mail
 from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
 from .models import Agreement, InsuranceCompany, CommissionStructure, Product, ProductTransactionSchema, PaymentTerms, Transaction, Commission, MeetingSummary
+from django.contrib.auth.models import User
+from .serializers import CustomAuthTokenSerializer
 
 from rest_framework import viewsets
 from django.contrib.auth.models import User
@@ -128,20 +130,18 @@ class CalculateCommissionView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class CustomAuthToken(ObtainAuthToken):
+    serializer_class = CustomAuthTokenSerializer
     def post(self, request, *args, **kwargs):
-        serializer = self.serializer_class(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            user = serializer.validated_data['user']
-            token, created = Token.objects.get_or_create(user=user)
-            return Response({
-                'token': token.key,
-                'user_id': user.pk,
-                'email': user.email,
-                'username': user.username,
-                'first_name': user.first_name,
-                'last_name': user.last_name
-            })
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer = self.serializer_class(data=request.data,
+                                           context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data['user']
+        token, created = Token.objects.get_or_create(user=user)
+        return Response({
+            'token': token.key,
+            'user_id': user.pk,
+            'username': user.username
+        })
 
 class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
