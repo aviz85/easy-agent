@@ -31,8 +31,8 @@ function App() {
       <AuthProvider>
         <Router>
           <GlobalStyle />
+          <Navbar />
           <div className="App">
-            <Navbar />
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />

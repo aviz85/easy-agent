@@ -11,13 +11,11 @@ from rest_framework.permissions import IsAuthenticated
 from .models import Agreement, InsuranceCompany, CommissionStructure, Product, ProductTransactionSchema, PaymentTerms, Transaction, Commission, MeetingSummary
 from django.contrib.auth.models import User
 from .serializers import CustomAuthTokenSerializer
+from rest_framework.authtoken.views import ObtainAuthToken
+from rest_framework.authtoken.models import Token
 
 from rest_framework import viewsets
 from django.contrib.auth.models import User
-
-from rest_framework.authtoken.views import ObtainAuthToken
-from rest_framework.authtoken.models import Token
-from rest_framework.response import Response
 
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
