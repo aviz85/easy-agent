@@ -1,67 +1,97 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import styled from 'styled-components';
-import api from '../services/api';
-import Button from './common/Button';
-import Card from './common/Card';
+import { FaFileContract, FaUsers, FaMoneyBillWave, FaClipboardList, FaPlus, FaChartLine, FaFileAlt } from 'react-icons/fa';
+import { MdNotifications } from 'react-icons/md';
+import StatCard from './dashboard/StatCard';
+import PieChartCard from './dashboard/PieChartCard';
+import BarChartCard from './dashboard/BarChartCard';
+import QuickActions from './dashboard/QuickActions';
 
 const DashboardContainer = styled.div`
-  padding: ${props => props.theme.spacing.lg};
+  padding: 2rem;
   max-width: 1200px;
   margin: 0 auto;
 `;
 
 const Title = styled.h1`
   color: ${props => props.theme.colors.primary};
-  margin-bottom: ${props => props.theme.spacing.lg};
+  margin-bottom: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 `;
 
 const Grid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: ${props => props.theme.spacing.lg};
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
 `;
 
-const SummaryCard = styled(Card)`
-  h2 {
-    color: ${props => props.theme.colors.primary};
-    margin-bottom: ${props => props.theme.spacing.md};
+const ChartGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+
+  @media (max-width: ${props => props.theme.breakpoints.mobile}) {
+    grid-template-columns: 1fr;
   }
 `;
 
 const Dashboard = () => {
-  const [agreements, setAgreements] = useState([]);
-  const [transactions, setTransactions] = useState([]);
+  const stats = [
+    { title: 'Total Agreements', value: 24, icon: FaFileContract },
+    { title: 'Active Clients', value: 156, icon: FaUsers },
+    { title: 'This Month\'s Commission', value: '$5,500', icon: FaMoneyBillWave },
+    { title: 'Pending Transactions', value: 7, icon: FaClipboardList },
+  ];
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const agreementsResponse = await api.get('/agreements/');
-        setAgreements(agreementsResponse.data);
+  const productData = [
+    { title: 'Life Insurance', value: 400, color: '#0088FE' },
+    { title: 'Health Insurance', value: 300, color: '#00C49F' },
+    { title: 'Auto Insurance', value: 300, color: '#FFBB28' },
+    { title: 'Home Insurance', value: 200, color: '#FF8042' },
+  ];
 
-        const transactionsResponse = await api.get('/transactions/');
-        setTransactions(transactionsResponse.data);
-      } catch (error) {
-        console.error('Error fetching dashboard data:', error);
-      }
-    };
+  const monthlyCommissions = [
+    { name: 'Jan', amount: 4000 },
+    { name: 'Feb', amount: 3000 },
+    { name: 'Mar', amount: 5000 },
+    { name: 'Apr', amount: 4500 },
+    { name: 'May', amount: 6000 },
+    { name: 'Jun', amount: 5500 },
+  ];
 
-    fetchData();
-  }, []);
+  const quickActions = [
+    { title: 'New Agreement', icon: FaPlus, action: () => console.log('Create new agreement') },
+    { title: 'New Client', icon: FaUsers, action: () => console.log('Add new client') },
+    { title: 'View Commissions', icon: FaChartLine, action: () => console.log('View commissions') },
+    { title: 'Generate Report', icon: FaFileAlt, action: () => console.log('Generate report') },
+  ];
 
   return (
     <DashboardContainer>
-      <Title>Dashboard</Title>
+      <Title><MdNotifications /> Dashboard</Title>
+      
       <Grid>
-        <SummaryCard>
-          <h2>Active Agreements</h2>
-          <p>{agreements.length}</p>
-        </SummaryCard>
-        <SummaryCard>
-          <h2>Recent Transactions</h2>
-          <p>{transactions.length}</p>
-        </SummaryCard>
+        {stats.map((stat, index) => (
+          <StatCard 
+            key={index}
+            title={stat.title}
+            value={stat.value}
+            icon={stat.icon}
+            onClick={() => console.log(`Clicked on ${stat.title}`)}
+          />
+        ))}
       </Grid>
-      <Button onClick={() => console.log('Create new agreement')} style={{ marginTop: '2rem' }}>Create New Agreement</Button>
+
+      <ChartGrid>
+        <PieChartCard data={productData} />
+        <BarChartCard data={monthlyCommissions} />
+      </ChartGrid>
+
+      <QuickActions actions={quickActions} />
     </DashboardContainer>
   );
 };

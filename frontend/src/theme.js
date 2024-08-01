@@ -4,7 +4,7 @@ export const theme = {
   colors: {
     primary: '#1a73e8',
     primaryLight: '#4285f4',
-    primaryDark: '#0d47a1',
+    primaryDark: '#1557b0',
     secondary: '#34a853',
     background: '#f8f9fa',
     surface: '#ffffff',
@@ -29,8 +29,11 @@ export const theme = {
   },
   shadows: {
     small: '0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15)',
-    medium: '0 1px 2px 0 rgba(60,64,67,0.3), 0 2px 6px 2px rgba(60,64,67,0.15)',
-    large: '0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15)',
+    medium: '0 4px 6px 0 rgba(60,64,67,0.3), 0 2px 4px 0 rgba(60,64,67,0.15)',
+    large: '0 10px 20px 0 rgba(60,64,67,0.3), 0 6px 6px 0 rgba(60,64,67,0.15)',
+  },
+  transitions: {
+    default: '0.3s ease',
   },
 };
 
