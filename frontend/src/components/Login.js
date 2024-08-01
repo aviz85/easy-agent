@@ -5,20 +5,17 @@ import { login } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import Button from './common/Button';
 import Input from './common/Input';
+import Card from './common/Card';
 
 const LoginContainer = styled.div`
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 100vh;
-  background-color: ${props => props.theme.colors.background};
+  height: calc(100vh - 60px);
+  padding: ${props => props.theme.spacing.md};
 `;
 
-const LoginForm = styled.form`
-  background-color: white;
-  padding: 2rem;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+const LoginCard = styled(Card)`
   width: 100%;
   max-width: 400px;
 `;
@@ -26,13 +23,19 @@ const LoginForm = styled.form`
 const Title = styled.h2`
   text-align: center;
   color: ${props => props.theme.colors.primary};
-  margin-bottom: 2rem;
+  margin-bottom: ${props => props.theme.spacing.lg};
+`;
+
+const Form = styled.form`
+  display: flex;
+  flex-direction: column;
+  gap: ${props => props.theme.spacing.md};
 `;
 
 const ErrorMessage = styled.p`
   color: ${props => props.theme.colors.error};
   text-align: center;
-  margin-top: 1rem;
+  margin-top: ${props => props.theme.spacing.md};
 `;
 
 const Login = () => {
@@ -56,25 +59,27 @@ const Login = () => {
 
   return (
     <LoginContainer>
-      <LoginForm onSubmit={handleSubmit}>
+      <LoginCard>
         <Title>Login</Title>
-        <Input
-          type="text"
-          placeholder="Username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          required
-        />
-        <Input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        <Button type="submit">Log In</Button>
+        <Form onSubmit={handleSubmit}>
+          <Input
+            type="text"
+            placeholder="Username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            required
+          />
+          <Input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          <Button type="submit">Log In</Button>
+        </Form>
         {error && <ErrorMessage>{error}</ErrorMessage>}
-      </LoginForm>
+      </LoginCard>
     </LoginContainer>
   );
 };

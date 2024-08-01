@@ -3,18 +3,40 @@ import styled from 'styled-components';
 import api from '../services/api';
 import Button from './common/Button';
 import Input from './common/Input';
+import Card from './common/Card';
 
 const ProfileContainer = styled.div`
-  padding: 2rem;
+  padding: ${props => props.theme.spacing.lg};
+  max-width: 800px;
+  margin: 0 auto;
 `;
 
 const Title = styled.h1`
   color: ${props => props.theme.colors.primary};
-  margin-bottom: 1rem;
+  margin-bottom: ${props => props.theme.spacing.lg};
 `;
 
 const Form = styled.form`
-  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: ${props => props.theme.spacing.md};
+`;
+
+const FieldGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+`;
+
+const Label = styled.label`
+  font-weight: 500;
+  margin-bottom: ${props => props.theme.spacing.xs};
+  color: ${props => props.theme.colors.textLight};
+`;
+
+const SuccessMessage = styled.p`
+  color: ${props => props.theme.colors.success};
+  text-align: center;
+  margin-top: ${props => props.theme.spacing.md};
 `;
 
 const Profile = () => {
@@ -24,6 +46,7 @@ const Profile = () => {
     first_name: '',
     last_name: '',
   });
+  const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -46,48 +69,63 @@ const Profile = () => {
     e.preventDefault();
     try {
       await api.put('/profile/', profile);
-      alert('Profile updated successfully');
+      setSuccessMessage('Profile updated successfully');
+      setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       console.error('Error updating profile:', error);
-      alert('Failed to update profile');
     }
   };
 
   return (
     <ProfileContainer>
       <Title>Profile</Title>
-      <Form onSubmit={handleSubmit}>
-        <Input
-          type="text"
-          name="username"
-          value={profile.username}
-          onChange={handleChange}
-          placeholder="Username"
-          disabled
-        />
-        <Input
-          type="email"
-          name="email"
-          value={profile.email}
-          onChange={handleChange}
-          placeholder="Email"
-        />
-        <Input
-          type="text"
-          name="first_name"
-          value={profile.first_name}
-          onChange={handleChange}
-          placeholder="First Name"
-        />
-        <Input
-          type="text"
-          name="last_name"
-          value={profile.last_name}
-          onChange={handleChange}
-          placeholder="Last Name"
-        />
-        <Button type="submit">Update Profile</Button>
-      </Form>
+      <Card>
+        <Form onSubmit={handleSubmit}>
+          <FieldGroup>
+            <Label htmlFor="username">Username</Label>
+            <Input
+              id="username"
+              type="text"
+              name="username"
+              value={profile.username}
+              onChange={handleChange}
+              disabled
+            />
+          </FieldGroup>
+          <FieldGroup>
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              name="email"
+              value={profile.email}
+              onChange={handleChange}
+            />
+          </FieldGroup>
+          <FieldGroup>
+            <Label htmlFor="first_name">First Name</Label>
+            <Input
+              id="first_name"
+              type="text"
+              name="first_name"
+              value={profile.first_name}
+              onChange={handleChange}
+            />
+          </FieldGroup>
+          <FieldGroup>
+            <Label htmlFor="last_name">Last Name</Label>
+            <Input
+              id="last_name"
+              type="text"
+              name="last_name"
+              value={profile.last_name}
+              onChange={handleChange}
+            />
+          </FieldGroup>
+          <Button type="submit">Update Profile</Button>
+        </Form>
+        {successMessage && <SuccessMessage>{successMessage}</SuccessMessage>}
+      </Card>
     </ProfileContainer>
   );
 };

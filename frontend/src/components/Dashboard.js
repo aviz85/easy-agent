@@ -2,22 +2,30 @@ import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import api from '../services/api';
 import Button from './common/Button';
+import Card from './common/Card';
 
 const DashboardContainer = styled.div`
-  padding: 2rem;
+  padding: ${props => props.theme.spacing.lg};
+  max-width: 1200px;
+  margin: 0 auto;
 `;
 
 const Title = styled.h1`
   color: ${props => props.theme.colors.primary};
-  margin-bottom: 1rem;
+  margin-bottom: ${props => props.theme.spacing.lg};
 `;
 
-const SummaryCard = styled.div`
-  background-color: white;
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+const Grid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: ${props => props.theme.spacing.lg};
+`;
+
+const SummaryCard = styled(Card)`
+  h2 {
+    color: ${props => props.theme.colors.primary};
+    margin-bottom: ${props => props.theme.spacing.md};
+  }
 `;
 
 const Dashboard = () => {
@@ -43,13 +51,17 @@ const Dashboard = () => {
   return (
     <DashboardContainer>
       <Title>Dashboard</Title>
-      <SummaryCard>
-        <h2>Active Agreements: {agreements.length}</h2>
-      </SummaryCard>
-      <SummaryCard>
-        <h2>Recent Transactions: {transactions.length}</h2>
-      </SummaryCard>
-      <Button onClick={() => console.log('Create new agreement')}>Create New Agreement</Button>
+      <Grid>
+        <SummaryCard>
+          <h2>Active Agreements</h2>
+          <p>{agreements.length}</p>
+        </SummaryCard>
+        <SummaryCard>
+          <h2>Recent Transactions</h2>
+          <p>{transactions.length}</p>
+        </SummaryCard>
+      </Grid>
+      <Button onClick={() => console.log('Create new agreement')} style={{ marginTop: '2rem' }}>Create New Agreement</Button>
     </DashboardContainer>
   );
 };

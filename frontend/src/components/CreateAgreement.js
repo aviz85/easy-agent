@@ -3,18 +3,47 @@ import styled from 'styled-components';
 import api from '../services/api';
 import Button from './common/Button';
 import Input from './common/Input';
+import Card from './common/Card';
 
 const CreateAgreementContainer = styled.div`
-  padding: 2rem;
+  padding: ${props => props.theme.spacing.lg};
+  max-width: 800px;
+  margin: 0 auto;
 `;
 
 const Title = styled.h1`
   color: ${props => props.theme.colors.primary};
-  margin-bottom: 1rem;
+  margin-bottom: ${props => props.theme.spacing.lg};
 `;
 
 const Form = styled.form`
-  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  gap: ${props => props.theme.spacing.md};
+`;
+
+const FieldGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+`;
+
+const Label = styled.label`
+  font-weight: 500;
+  margin-bottom: ${props => props.theme.spacing.xs};
+  color: ${props => props.theme.colors.textLight};
+`;
+
+const CommissionStructure = styled.div`
+  border: 1px solid ${props => props.theme.colors.border};
+  border-radius: 4px;
+  padding: ${props => props.theme.spacing.md};
+  margin-bottom: ${props => props.theme.spacing.md};
+`;
+
+const SuccessMessage = styled.p`
+  color: ${props => props.theme.colors.success};
+  text-align: center;
+  margin-top: ${props => props.theme.spacing.md};
 `;
 
 const CreateAgreement = () => {
@@ -25,6 +54,7 @@ const CreateAgreement = () => {
     terms: '',
     commission_structures: [{ product: '', commission_type: '', rate: '' }],
   });
+  const [successMessage, setSuccessMessage] = useState('');
 
   const handleChange = (e) => {
     setAgreement({ ...agreement, [e.target.name]: e.target.value });
@@ -51,78 +81,104 @@ const CreateAgreement = () => {
     e.preventDefault();
     try {
       await api.post('/agreements/', agreement);
-      alert('Agreement created successfully');
+      setSuccessMessage('Agreement created successfully');
+      setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       console.error('Error creating agreement:', error);
-      alert('Failed to create agreement');
     }
   };
 
   return (
     <CreateAgreementContainer>
       <Title>Create Agreement</Title>
-      <Form onSubmit={handleSubmit}>
-        <Input
-          type="text"
-          name="company"
-          value={agreement.company}
-          onChange={handleChange}
-          placeholder="Company Name"
-          required
-        />
-        <Input
-          type="date"
-          name="start_date"
-          value={agreement.start_date}
-          onChange={handleChange}
-          required
-        />
-        <Input
-          type="date"
-          name="end_date"
-          value={agreement.end_date}
-          onChange={handleChange}
-          required
-        />
-        <Input
-          as="textarea"
-          name="terms"
-          value={agreement.terms}
-          onChange={handleChange}
-          placeholder="Agreement Terms"
-          required
-        />
-        {agreement.commission_structures.map((structure, index) => (
-          <div key={index}>
+      <Card>
+        <Form onSubmit={handleSubmit}>
+          <FieldGroup>
+            <Label htmlFor="company">Company Name</Label>
             <Input
+              id="company"
               type="text"
-              name="product"
-              value={structure.product}
-              onChange={(e) => handleCommissionStructureChange(index, e)}
-              placeholder="Product"
+              name="company"
+              value={agreement.company}
+              onChange={handleChange}
               required
             />
+          </FieldGroup>
+          <FieldGroup>
+            <Label htmlFor="start_date">Start Date</Label>
             <Input
-              type="text"
-              name="commission_type"
-              value={structure.commission_type}
-              onChange={(e) => handleCommissionStructureChange(index, e)}
-              placeholder="Commission Type"
+              id="start_date"
+              type="date"
+              name="start_date"
+              value={agreement.start_date}
+              onChange={handleChange}
               required
             />
+          </FieldGroup>
+          <FieldGroup>
+            <Label htmlFor="end_date">End Date</Label>
             <Input
-              type="number"
-              name="rate"
-              value={structure.rate}
-              onChange={(e) => handleCommissionStructureChange(index, e)}
-              placeholder="Rate"
+              id="end_date"
+              type="date"
+              name="end_date"
+              value={agreement.end_date}
+              onChange={handleChange}
               required
             />
-          </div>
-        ))}
-        <Button type="button" onClick={addCommissionStructure}>Add Commission Structure</Button>
-        <Button type="submit">Create Agreement</Button>
-      </Form>
+          </FieldGroup>
+          <FieldGroup>
+            <Label htmlFor="terms">Agreement Terms</Label>
+            <Input
+              id="terms"
+              as="textarea"
+              name="terms"
+              value={agreement.terms}
+              onChange={handleChange}
+              required
+            />
+          </FieldGroup>
+          {agreement.commission_structures.map((structure, index) => (
+            <CommissionStructure key={index}>
+              <FieldGroup>
+                <Label htmlFor={`product-${index}`}>Product</Label>
+                <Input
+                  id={`product-${index}`}
+                  type="text"
+                  name="product"
+                  value={structure.product}
+                  onChange={(e) => handleCommissionStructureChange(index, e)}
+                  required
+                />
+              </FieldGroup>
+              <FieldGroup>
+                <Label htmlFor={`commission_type-${index}`}>Commission Type</Label>
+                <Input
+                  id={`commission_type-${index}`}
+                  type="text"
+                  name="commission_type"
+                  value={structure.commission_type}
+                  onChange={(e) => handleCommissionStructureChange(index, e)}
+                  required
+                />
+              </FieldGroup>
+              <FieldGroup>
+                <Label htmlFor={`rate-${index}`}>Rate</Label>
+                <Input
+                  id={`rate-${index}`}
+                  type="number"
+                  name="rate"
+                  value={structure.rate}
+                  onChange={(e) => handleCommissionStructureChange(index, e)}
+                  required
+                />
+              </FieldGroup>
+            </CommissionStructure>
+          ))}
+          <Button type="button" onClick={addCommissionStructure}>Add Commission Structure</Button>
+          <Button type="submit">Create Agreement</Button>
+        </Form>
+        {successMessage && <SuccessMessage>{successMessage}</SuccessMessage>}
+      </Card>
     </CreateAgreementContainer>
   );
 };
