@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import styled from 'styled-components';
 import { useAuth } from '../contexts/AuthContext';
+import { FaBell, FaUser, FaChevronDown } from 'react-icons/fa';
 
 const NavContainer = styled.nav`
   background-color: ${props => props.theme.colors.surface};
@@ -27,21 +28,16 @@ const Logo = styled(Link)`
   text-decoration: none;
 `;
 
-const NavLinks = styled.div`
+const NavLinksLeft = styled.div`
   display: flex;
   align-items: center;
+  margin-right: auto; // This will push the buttons to the left
+  margin-left: 2rem; // Small margin from the logo
+`;
 
-  @media (max-width: ${props => props.theme.breakpoints.mobile}) {
-    display: ${props => props.isOpen ? 'flex' : 'none'};
-    flex-direction: column;
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background-color: ${props => props.theme.colors.surface};
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    padding: 1rem;
-  }
+const NavLinksRight = styled.div`
+  display: flex;
+  align-items: center;
 `;
 
 const NavLink = styled(Link)`
@@ -55,92 +51,184 @@ const NavLink = styled(Link)`
   &:hover, &.active {
     background-color: ${props => props.theme.colors.primaryLight};
     color: ${props => props.theme.colors.surface};
-    text-decoration: none;  // Explicitly remove text decoration on hover
-  }
-
-  &:focus {
-    outline: none;
-    text-decoration: none;  // Remove text decoration on focus as well
-  }
-
-  @media (max-width: ${props => props.theme.breakpoints.mobile}) {
-    margin: 0.5rem 0;
-    width: 100%;
-    text-align: center;
   }
 `;
 
 const NavButton = styled.button`
   background-color: transparent;
   color: ${props => props.theme.colors.primary};
-  border: 2px solid ${props => props.theme.colors.primary};
+  border: none;
   padding: 0.5rem 1rem;
   border-radius: 4px;
   cursor: pointer;
-  transition: background-color 0.3s, color 0.3s;
-  font-weight: bold;
+  display: flex;
+  align-items: center;
+  font-size: 1rem;
+`;
+
+const NotificationIcon = styled.div`
+  position: relative;
+  cursor: pointer;
+  margin-right: 1rem;
+  transition: transform 0.3s ease;
 
   &:hover {
-    background-color: ${props => props.theme.colors.primary};
-    color: ${props => props.theme.colors.surface};
-  }
-
-  @media (max-width: ${props => props.theme.breakpoints.mobile}) {
-    width: 100%;
-    margin-top: 0.5rem;
+    transform: scale(1.1);
   }
 `;
 
-const MenuToggle = styled.button`
-  display: none;
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  cursor: pointer;
-  color: ${props => props.theme.colors.primary};
+const NotificationBadge = styled.span`
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background-color: ${props => props.theme.colors.error};
+  color: ${props => props.theme.colors.surface};
+  border-radius: 50%;
+  padding: 2px 5px;
+  font-size: 0.7rem;
+  transition: all 0.3s ease;
 
-  @media (max-width: ${props => props.theme.breakpoints.mobile}) {
-    display: block;
+  ${NotificationIcon}:hover & {
+    transform: scale(1.1);
+    box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+  }
+`;
+
+const NotificationPopup = styled.div`
+  position: absolute;
+  top: 100%;
+  right: -10px;
+  background-color: ${props => props.theme.colors.surface};
+  border-radius: 4px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  padding: 1rem;
+  min-width: 200px;
+  z-index: 1000;
+  opacity: ${props => props.isVisible ? 1 : 0};
+  transform: ${props => props.isVisible ? 'translateY(0)' : 'translateY(-10px)'};
+  transition: opacity 0.3s ease, transform 0.3s ease;
+`;
+
+const NotificationItem = styled.div`
+  padding: 0.5rem 0;
+  border-bottom: 1px solid ${props => props.theme.colors.border};
+  
+  &:last-child {
+    border-bottom: none;
+  }
+`;
+
+const ProfileDropdown = styled.div`
+  position: relative;
+`;
+
+const DropdownContent = styled.div`
+  display: ${props => props.isOpen ? 'block' : 'none'};
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background-color: ${props => props.theme.colors.surface};
+  min-width: 180px;
+  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+  border-radius: 4px;
+  overflow: hidden;
+  z-index: 1;
+`;
+
+const DropdownItem = styled(Link)`
+  color: ${props => props.theme.colors.text};
+  padding: 12px 16px;
+  text-decoration: none;
+  display: block;
+  transition: background-color 0.3s;
+
+  &:hover {
+    background-color: ${props => props.theme.colors.primaryLight};
+    color: ${props => props.theme.colors.surface};
   }
 `;
 
 const Navbar = () => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [notificationCount, setNotificationCount] = useState(3);
+  const dropdownRef = useRef(null);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const notificationRef = useRef(null);
 
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
-  const toggleMenu = () => {
-    setIsOpen(!isOpen);
+  const handleNotificationClick = () => {
+    setIsNotificationOpen(!isNotificationOpen);
   };
+
+  const toggleProfileDropdown = () => {
+    setIsProfileOpen(!isProfileOpen);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsProfileOpen(false);
+      }
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
+        setIsNotificationOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   return (
     <NavContainer>
       <NavContent>
         <Logo to="/">EasyAgent</Logo>
-        <MenuToggle onClick={toggleMenu}>
-          {isOpen ? '✕' : '☰'}
-        </MenuToggle>
-        <NavLinks isOpen={isOpen}>
-          {user ? (
-            <>
+        {user && (
+          <>
+            <NavLinksLeft>
               <NavLink to="/dashboard" className={location.pathname === '/dashboard' ? 'active' : ''}>Dashboard</NavLink>
-              <NavLink to="/profile" className={location.pathname === '/profile' ? 'active' : ''}>Profile</NavLink>
               <NavLink to="/create-agreement" className={location.pathname === '/create-agreement' ? 'active' : ''}>Create Agreement</NavLink>
-              <NavButton onClick={handleLogout}>Logout</NavButton>
-            </>
-          ) : (
-            <>
-              <NavLink to="/login" className={location.pathname === '/login' ? 'active' : ''}>Login</NavLink>
-              <NavLink to="/register" className={location.pathname === '/register' ? 'active' : ''}>Register</NavLink>
-            </>
-          )}
-        </NavLinks>
+            </NavLinksLeft>
+            <NavLinksRight>
+              <NotificationIcon onClick={handleNotificationClick} ref={notificationRef}>
+                <FaBell size={20} />
+                {notificationCount > 0 && (
+                  <NotificationBadge>{notificationCount}</NotificationBadge>
+                )}
+                <NotificationPopup isVisible={isNotificationOpen}>
+                  <NotificationItem>New message from John</NotificationItem>
+                  <NotificationItem>Your agreement was approved</NotificationItem>
+                  <NotificationItem>New client signed up</NotificationItem>
+                </NotificationPopup>
+              </NotificationIcon>
+              <ProfileDropdown ref={dropdownRef}>
+                <NavButton onClick={toggleProfileDropdown}>
+                  <FaUser size={16} style={{ marginRight: '5px' }} />
+                  {user.name || 'Profile'}
+                  <FaChevronDown size={12} style={{ marginLeft: '5px' }} />
+                </NavButton>
+                <DropdownContent isOpen={isProfileOpen}>
+                  <DropdownItem to="/profile">Profile</DropdownItem>
+                  <DropdownItem as="button" onClick={handleLogout}>Logout</DropdownItem>
+                </DropdownContent>
+              </ProfileDropdown>
+            </NavLinksRight>
+          </>
+        )}
+        {!user && (
+          <NavLinksRight>
+            <NavLink to="/login" className={location.pathname === '/login' ? 'active' : ''}>Login</NavLink>
+            <NavLink to="/register" className={location.pathname === '/register' ? 'active' : ''}>Register</NavLink>
+          </NavLinksRight>
+        )}
       </NavContent>
     </NavContainer>
   );
