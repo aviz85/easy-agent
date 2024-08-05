@@ -2,22 +2,22 @@
 
 from decimal import Decimal
 from django.utils import timezone
-from .models import MeetingSummary, Transaction, Product, CommissionStructure, Commission
+from .models import MeetingSummary, Transaction, Product, CommissionStructure, Client
 from .gateways import GroqGateway
 
 def calculate_commission(transaction):
-    commissions = []
     commission_structures = CommissionStructure.objects.filter(
         agreement__agent=transaction.agent,
         product=transaction.product
     )
+    commissions = []
 
     for structure in commission_structures:
         amount = Decimal(0)
 
         if structure.commission_type == 'SCOPE':
             # Example: Scope commission is a percentage of the transaction amount
-            amount = Decimal(transaction.details.get('amount', 0)) * (structure.rate / Decimal(100))
+            amount = Decimal(transaction.metadata.get('amount', 0)) * (structure.rate / Decimal(100))
         elif structure.commission_type == 'RECURRING':
             # Example: Recurring commission is a fixed amount
             amount = structure.rate
@@ -37,14 +37,14 @@ def calculate_commission(transaction):
                 if expected_payment_date < timezone.now().date():
                     expected_payment_date = expected_payment_date.replace(year=expected_payment_date.year + 1)
 
-            commission = Commission.objects.create(
-                transaction=transaction,
-                commission_structure=structure,
-                amount=amount,
-                expected_payment_date=expected_payment_date,
-                status='PENDING'
-            )
-            commissions.append(commission)
+            commission_data = {
+                'transaction': transaction,
+                'commission_structure': structure,
+                'amount': amount,
+                'expected_payment_date': expected_payment_date,
+                'status': 'PENDING'
+            }
+            commissions.append(commission_data)
 
     return commissions
 
@@ -56,38 +56,34 @@ def process_meeting_summary(user, content):
     client_name = extracted_info.get('client_name')
     product_name = extracted_info.get('product_name')
     amount = extracted_info.get('amount')
-    product_type = extracted_info.get('product_type')  # Add this line
+    product_category = extracted_info.get('product_category', 'INSURANCE')
 
     if client_name and product_name and amount:
         # Create MeetingSummary
         summary = MeetingSummary.objects.create(
             agent=user,
-            date=timezone.now().date(),
             content=content,
             processed_status='SUCCESS'
         )
         
-        # Create Transaction
+        # Create or get Product
         product, _ = Product.objects.get_or_create(
             name=product_name,
-            defaults={
-                'category': extracted_info.get('product_category', 'INSURANCE'),
-                'type': product_type  # Add this line
-            }
+            defaults={'category': product_category}
         )
         
-        # Update the product type if it's a new value
-        if product.type != product_type:
-            product.type = product_type
-            product.save()
+        # Create or get Client
+        client, _ = Client.objects.get_or_create(
+            display_name=client_name,
+            defaults={'first_name': client_name.split()[0], 'last_name': client_name.split()[-1]}
+        )
         
+        # Create Transaction
         transaction = Transaction.objects.create(
             agent=user,
-            client_name=client_name,
+            client=client,
             product=product,
-            date=timezone.now().date(),
-            status='PENDING',
-            details={'amount': amount}
+            metadata={'amount': amount}
         )
         
         return summary, transaction
@@ -95,7 +91,6 @@ def process_meeting_summary(user, content):
         # Handle the case where required information is missing
         summary = MeetingSummary.objects.create(
             agent=user,
-            date=timezone.now().date(),
             content=content,
             processed_status='FAILED'
         )

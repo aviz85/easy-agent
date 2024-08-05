@@ -18,36 +18,9 @@ class Product(models.Model):
     ]
     name = models.CharField(max_length=100)
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
-    type = models.CharField(max_length=100)
-    description = models.TextField()
 
     def __str__(self):
         return f"{self.name} ({self.get_category_display()})"
-
-class ProductTransactionSchema(models.Model):
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='transaction_schemas')
-    field_name = models.CharField(max_length=100)
-    field_type = models.CharField(max_length=50)
-    is_required = models.BooleanField(default=False)
-
-    def __str__(self):
-        return f"{self.product.name} - {self.field_name}"
-
-class Agreement(models.Model):
-    STATUS_CHOICES = [
-        ('ACTIVE', 'Active'),
-        ('INACTIVE', 'Inactive'),
-        ('EXPIRED', 'Expired'),
-    ]
-    agent = models.ForeignKey(User, on_delete=models.CASCADE)
-    company = models.ForeignKey(InsuranceCompany, on_delete=models.CASCADE)
-    start_date = models.DateField()
-    end_date = models.DateField(null=True, blank=True)
-    terms = models.JSONField()
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='ACTIVE')
-
-    def __str__(self):
-        return f"Agreement between {self.agent.username} and {self.company.name}"
 
 class PaymentTerms(models.Model):
     PAYMENT_TYPE_CHOICES = [
@@ -63,50 +36,52 @@ class PaymentTerms(models.Model):
             return f"Day {self.day_of_month} of each month"
         return f"Annually on {self.specific_date}"
 
-class CommissionStructure(models.Model):
-    COMMISSION_TYPE_CHOICES = [
-        ('SCOPE', 'Scope Commission'),
-        ('RECURRING', 'Recurring Commission'),
-        ('RETENTION', 'Retention Bonus'),
-        ('OVERRIDE', 'Override Commission'),
-        ('TRAIL', 'Trail Commission'),
-        ('RENEWAL', 'Renewal Commission'),
-    ]
-    agreement = models.ForeignKey(Agreement, on_delete=models.CASCADE, related_name='commission_structures')
-    product = models.ForeignKey(Product, on_delete=models.CASCADE)
-    commission_type = models.CharField(max_length=20, choices=COMMISSION_TYPE_CHOICES)
-    rate = models.DecimalField(max_digits=5, decimal_places=2)
-    payment_terms = models.ForeignKey(PaymentTerms, on_delete=models.CASCADE)
+class Agreement(models.Model):
+    agent = models.ForeignKey(User, on_delete=models.CASCADE)
+    company = models.ForeignKey(InsuranceCompany, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.get_commission_type_display()} for {self.product.name}"
+        return f"Agreement between {self.agent.username} and {self.company.name}"
+
+class CommissionStructure(models.Model):
+    agent = models.ForeignKey(User, on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    commission_type = models.CharField(max_length=20, choices=[('SCOPE', 'Scope'), ('RECURRING', 'Recurring')])
+    rate = models.DecimalField(max_digits=5, decimal_places=2)
+    payment_terms = models.ForeignKey(PaymentTerms, on_delete=models.CASCADE)
+    agreement = models.ForeignKey(Agreement, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"{self.agent.username} - {self.product.name} - {self.commission_type}"
+
+class Client(models.Model):
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100)
+    display_name = models.CharField(max_length=200)
+    phone_number = models.CharField(max_length=20, blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.display_name
 
 class Transaction(models.Model):
     agent = models.ForeignKey(User, on_delete=models.CASCADE)
-    client_name = models.CharField(max_length=100)
+    client = models.ForeignKey('commission.Client', on_delete=models.PROTECT, null=True)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
-    date = models.DateField()
-    status = models.CharField(max_length=50)
-    details = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    metadata = models.JSONField(default=dict)
 
     def __str__(self):
-        return f"Transaction for {self.client_name} - {self.product.name}"
-
-class Commission(models.Model):
-    transaction = models.ForeignKey(Transaction, on_delete=models.CASCADE)
-    commission_structure = models.ForeignKey(CommissionStructure, on_delete=models.CASCADE)
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    expected_payment_date = models.DateField()
-    status = models.CharField(max_length=50)
-
-    def __str__(self):
-        return f"Commission for {self.transaction}"
+        return f"Transaction for {self.client.display_name} - {self.product.name}"
 
 class MeetingSummary(models.Model):
     agent = models.ForeignKey(User, on_delete=models.CASCADE)
-    date = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
     content = models.TextField()
     processed_status = models.CharField(max_length=50)
 
     def __str__(self):
-        return f"Meeting Summary for {self.agent.username} on {self.date}"
+        return f"Meeting Summary for {self.agent.username} on {self.created_at.date()}"

@@ -6,22 +6,20 @@ from .views import (
     UserRegistrationView, UserProfileView, ChangePasswordView,
     SubmitMeetingSummaryView, CalculateCommissionView, CustomAuthToken,
     LogoutView, UserViewSet, InsuranceCompanyViewSet, ProductViewSet,
-    ProductTransactionSchemaViewSet, AgreementViewSet, PaymentTermsViewSet,
-    CommissionStructureViewSet, TransactionViewSet, CommissionViewSet,
-    MeetingSummaryViewSet
+    AgreementViewSet, PaymentTermsViewSet, CommissionStructureViewSet,
+    TransactionViewSet, MeetingSummaryViewSet, ClientViewSet
 )
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet)
 router.register(r'insurance-companies', InsuranceCompanyViewSet)
 router.register(r'products', ProductViewSet)
-router.register(r'product-transaction-schemas', ProductTransactionSchemaViewSet)
 router.register(r'agreements', AgreementViewSet, basename='agreement')
 router.register(r'payment-terms', PaymentTermsViewSet)
 router.register(r'commission-structures', CommissionStructureViewSet)
-router.register(r'transactions', TransactionViewSet)
-router.register(r'commissions', CommissionViewSet)
+router.register(r'transactions', TransactionViewSet, basename='transaction')
 router.register(r'meeting-summaries', MeetingSummaryViewSet)
+router.register(r'clients', ClientViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

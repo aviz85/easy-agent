@@ -2,13 +2,17 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from .services import process_meeting_summary, calculate_commission
-from .serializers import MeetingSummarySerializer, TransactionSerializer, UserProfileSerializer, ChangePasswordSerializer, CommissionSerializer
+from .serializers import (
+    MeetingSummarySerializer, TransactionSerializer, UserProfileSerializer,
+    ChangePasswordSerializer, UserRegistrationSerializer, UserSerializer,
+    InsuranceCompanySerializer, ProductSerializer, AgreementSerializer, PaymentTermsSerializer,
+    CommissionStructureSerializer, ClientSerializer
+)
 from rest_framework import generics, permissions, status
-from .serializers import CalculateCommissionSerializer, UserRegistrationSerializer, UserSerializer, InsuranceCompanySerializer, ProductSerializer, ProductTransactionSchemaSerializer, AgreementSerializer, PaymentTermsSerializer, CommissionStructureSerializer, TransactionSerializer, CommissionSerializer, MeetingSummarySerializer
 from django.core.mail import send_mail
 from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
-from .models import Agreement, InsuranceCompany, CommissionStructure, Product, ProductTransactionSchema, PaymentTerms, Transaction, Commission, MeetingSummary
+from .models import Agreement, InsuranceCompany, CommissionStructure, Product, PaymentTerms, Transaction, MeetingSummary, Client
 from django.contrib.auth.models import User
 from .serializers import CustomAuthTokenSerializer
 from rest_framework.authtoken.views import ObtainAuthToken
@@ -20,13 +24,16 @@ from django.contrib.auth.models import User
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
+class IsOwnerOrAdmin(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
+        return request.user.is_staff or obj.agent == request.user
 
 class AgreementListView(generics.ListAPIView):
     serializer_class = AgreementSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Agreement.objects.filter(agent=self.request.user, status='ACTIVE')
+        return Agreement.objects.filter(agent=self.request.user)
 
 class UserRegistrationView(generics.CreateAPIView):
     serializer_class = UserRegistrationSerializer
@@ -95,14 +102,22 @@ class SubmitMeetingSummaryView(APIView):
             return Response({'error': 'Meeting summary content is required'}, status=status.HTTP_400_BAD_REQUEST)
 
         result = process_meeting_summary(request.user, content)
-        summary, transaction = result[:2]  # Take only the first two values
+        summary, transaction_data = result[:2]  # Take only the first two values
         
-        if not transaction:
+        if not transaction_data:
             # If no transaction was created, create one with basic information
+            client = Client.objects.create(display_name="Unknown Client")
+            product = Product.objects.first()  # Assuming there's at least one product
             transaction = Transaction.objects.create(
                 agent=request.user,
-                client_name="Unknown",  # You might want to extract this from the summary
-                status="PENDING"  # Or any default status you prefer
+                client=client,
+                product=product
+            )
+        else:
+            transaction = Transaction.objects.create(
+                agent=request.user,
+                client=Client.objects.get_or_create(display_name=transaction_data.get('client_name', 'Unknown Client'))[0],
+                product=Product.objects.get_or_create(name=transaction_data.get('product_name', 'Unknown Product'))[0]
             )
         
         response_data = {
@@ -114,18 +129,28 @@ class SubmitMeetingSummaryView(APIView):
 
 class CalculateCommissionView(APIView):
     def post(self, request):
-        serializer = CalculateCommissionSerializer(data=request.data)
-        if serializer.is_valid():
-            transaction_id = serializer.validated_data['transaction_id']
-            try:
-                transaction = Transaction.objects.get(id=transaction_id)
-            except Transaction.DoesNotExist:
-                return Response({'error': 'Transaction not found'}, status=status.HTTP_404_NOT_FOUND)
-
+        transaction_id = request.data.get('transaction_id')
+        try:
+            transaction = Transaction.objects.get(id=transaction_id)
+            if transaction.agent != request.user and not request.user.is_staff:
+                return Response({"error": "You don't have permission to calculate commission for this transaction"}, status=status.HTTP_403_FORBIDDEN)
             commissions = calculate_commission(transaction)
-            commission_serializer = CommissionSerializer(commissions, many=True)
-            return Response(commission_serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Serialize the commission data
+            serialized_commissions = []
+            for commission in commissions:
+                serialized_commission = {
+                    'transaction': TransactionSerializer(commission['transaction']).data,
+                    'commission_structure': CommissionStructureSerializer(commission['commission_structure']).data,
+                    'amount': str(commission['amount']),  # Convert Decimal to string
+                    'expected_payment_date': commission['expected_payment_date'].isoformat(),
+                    'status': commission['status']
+                }
+                serialized_commissions.append(serialized_commission)
+            
+            return Response({"commissions": serialized_commissions}, status=status.HTTP_200_OK)
+        except Transaction.DoesNotExist:
+            return Response({"error": "Transaction not found"}, status=status.HTTP_404_NOT_FOUND)
 
 class CustomAuthToken(ObtainAuthToken):
     serializer_class = CustomAuthTokenSerializer
@@ -145,9 +170,8 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        # Delete the user's token to log them out
-        request.user.auth_token.delete()
-        return Response({"message": "Successfully logged out."}, status=status.HTTP_200_OK)
+        # Perform any logout logic here
+        return Response({"detail": "Successfully logged out."}, status=status.HTTP_200_OK)
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
@@ -161,10 +185,6 @@ class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
 
-class ProductTransactionSchemaViewSet(viewsets.ModelViewSet):
-    queryset = ProductTransactionSchema.objects.all()
-    serializer_class = ProductTransactionSchemaSerializer
-
 class AgreementViewSet(viewsets.ModelViewSet):
     serializer_class = AgreementSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -172,7 +192,7 @@ class AgreementViewSet(viewsets.ModelViewSet):
     filterset_fields = ['company']
 
     def get_queryset(self):
-        return Agreement.objects.filter(agent=self.request.user, status='ACTIVE')
+        return Agreement.objects.filter(agent=self.request.user)
 
     def perform_create(self, serializer):
         serializer.save(agent=self.request.user)
@@ -197,27 +217,57 @@ class AgreementViewSet(viewsets.ModelViewSet):
 class PaymentTermsViewSet(viewsets.ModelViewSet):
     queryset = PaymentTerms.objects.all()
     serializer_class = PaymentTermsSerializer
+    permission_classes = [IsAuthenticated, IsOwnerOrAdmin]
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return PaymentTerms.objects.all()
+        return PaymentTerms.objects.filter(agent=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(agent=self.request.user)
 
 class CommissionStructureViewSet(viewsets.ModelViewSet):
     queryset = CommissionStructure.objects.all()
     serializer_class = CommissionStructureSerializer
+    permission_classes = [IsAuthenticated, IsOwnerOrAdmin]
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return CommissionStructure.objects.all()
+        return CommissionStructure.objects.filter(agent=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(agent=self.request.user)
 
 class TransactionViewSet(viewsets.ModelViewSet):
-    queryset = Transaction.objects.all()
     serializer_class = TransactionSerializer
+    permission_classes = [IsAuthenticated, IsOwnerOrAdmin]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['agent', 'product', 'status', 'date']
-    search_fields = ['client_name']
-    ordering_fields = ['date', 'status']
+    filterset_fields = ['agent', 'product', 'created_at']
+    search_fields = ['client__display_name']
+    ordering_fields = ['created_at']
 
-class CommissionViewSet(viewsets.ModelViewSet):
-    queryset = Commission.objects.all()
-    serializer_class = CommissionSerializer
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['transaction__agent', 'commission_structure__product', 'status', 'expected_payment_date']
-    search_fields = ['transaction__client_name']
-    ordering_fields = ['expected_payment_date', 'amount', 'status']
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return Transaction.objects.all()
+        return Transaction.objects.filter(agent=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(agent=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 class MeetingSummaryViewSet(viewsets.ModelViewSet):
     queryset = MeetingSummary.objects.all()
     serializer_class = MeetingSummarySerializer
+
+class ClientViewSet(viewsets.ModelViewSet):
+    queryset = Client.objects.all()
+    serializer_class = ClientSerializer
+    permission_classes = [IsAuthenticated]

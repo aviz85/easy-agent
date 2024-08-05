@@ -6,8 +6,8 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from .models import (
-    InsuranceCompany, Product, ProductTransactionSchema, Agreement,
-    PaymentTerms, CommissionStructure, Transaction, Commission, MeetingSummary
+    InsuranceCompany, Product, Agreement,
+    PaymentTerms, CommissionStructure, Transaction, MeetingSummary, Client,
 )
 
 class UserSerializer(serializers.ModelSerializer):
@@ -68,11 +68,6 @@ class ProductSerializer(serializers.ModelSerializer):
         model = Product
         fields = '__all__'
 
-class ProductTransactionSchemaSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProductTransactionSchema
-        fields = '__all__'
-
 class PaymentTermsSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentTerms
@@ -91,70 +86,25 @@ class CommissionStructureSerializer(serializers.ModelSerializer):
         return CommissionStructure.objects.create(payment_terms=payment_terms, **validated_data)
 
 class AgreementSerializer(serializers.ModelSerializer):
-    company = InsuranceCompanySerializer()
-    commission_structures = CommissionStructureSerializer(many=True)
-
     class Meta:
         model = Agreement
-        fields = ['id', 'company', 'start_date', 'end_date', 'terms', 'status', 'commission_structures']
+        fields = ['id', 'agent', 'company', 'created_at']  # Remove 'start_date' if it's not in your model
 
-    def validate(self, data):
-        errors = {}
-        if 'end_date' in data and data['start_date'] > data['end_date']:
-            errors['end_date'] = "End date must be after start date."
-        if 'commission_structures' not in data or len(data.get('commission_structures', [])) == 0:
-            errors['commission_structures'] = "At least one commission structure is required."
-        if errors:
-            raise serializers.ValidationError(errors)
-        return data
 
-    def create(self, validated_data):
-        company_data = validated_data.pop('company')
-        commission_structures_data = validated_data.pop('commission_structures')
-        
-        company, _ = InsuranceCompany.objects.get_or_create(name=company_data['name'], defaults=company_data)
-        
-        agreement = Agreement.objects.create(company=company, **validated_data)
-        
-        for structure_data in commission_structures_data:
-            payment_terms_data = structure_data.pop('payment_terms')
-            payment_terms = PaymentTerms.objects.create(**payment_terms_data)
-            CommissionStructure.objects.create(agreement=agreement, payment_terms=payment_terms, **structure_data)
-        
-        return agreement
-
-    def update(self, instance, validated_data):
-        company_data = validated_data.pop('company', None)
-        commission_structures_data = validated_data.pop('commission_structures', None)
-
-        if company_data:
-            company, _ = InsuranceCompany.objects.get_or_create(name=company_data['name'], defaults=company_data)
-            instance.company = company
-
-        instance.start_date = validated_data.get('start_date', instance.start_date)
-        instance.end_date = validated_data.get('end_date', instance.end_date)
-        instance.terms = validated_data.get('terms', instance.terms)
-        instance.status = validated_data.get('status', instance.status)
-        instance.save()
-
-        if commission_structures_data is not None:
-            instance.commission_structures.all().delete()
-            for structure_data in commission_structures_data:
-                payment_terms_data = structure_data.pop('payment_terms')
-                payment_terms = PaymentTerms.objects.create(**payment_terms_data)
-                CommissionStructure.objects.create(agreement=instance, payment_terms=payment_terms, **structure_data)
-
-        return instance
+class ClientSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Client
+        fields = ['id', 'first_name', 'last_name', 'display_name', 'phone_number', 'email', 'created_at', 'updated_at']
 
 class TransactionSerializer(serializers.ModelSerializer):
+    client = ClientSerializer(read_only=True)
+    client_id = serializers.PrimaryKeyRelatedField(queryset=Client.objects.all(), source='client', write_only=True)
+    agent = serializers.PrimaryKeyRelatedField(read_only=True)  # Add this line
+
     class Meta:
         model = Transaction
-        fields = '__all__'
-
-class CommissionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Commission
-        fields = '__all__'
+        fields = ['id', 'agent', 'client', 'client_id', 'product', 'created_at', 'metadata']
+        read_only_fields = ['agent']  # Add this line
 
 class MeetingSummarySerializer(serializers.ModelSerializer):
     class Meta:
