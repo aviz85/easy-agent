@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { FaPlus, FaSearch, FaEdit, FaTrash } from 'react-icons/fa';
-import { getClients, createClient } from '../services/api';
+import { getClients, createClient, deleteClient } from '../services/api';
 import Input from './common/Input';
 import { FieldGroup, Label } from './common/FormStyles';
+import ConfirmationModal from './common/ConfirmationModal';
 
 const PageContainer = styled.div`
   padding: 2rem;
@@ -92,7 +93,16 @@ const AddClientModal = ({ isOpen, onClose, fetchClients }) => {
   });
 
   const handleChange = (e) => {
-    setNewClient({ ...newClient, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setNewClient(prevState => {
+      const updatedClient = { ...prevState, [name]: value };
+      if (name === 'first_name' || name === 'last_name') {
+        if (!updatedClient.display_name || updatedClient.display_name === `${prevState.first_name} ${prevState.last_name}`.trim()) {
+          updatedClient.display_name = `${updatedClient.first_name} ${updatedClient.last_name}`.trim();
+        }
+      }
+      return updatedClient;
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -163,6 +173,8 @@ const Clients = () => {
   const [clients, setClients] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isConfirmationModalOpen, setIsConfirmationModalOpen] = useState(false);
+  const [clientToDelete, setClientToDelete] = useState(null);
 
   useEffect(() => {
     fetchClients();
@@ -183,6 +195,22 @@ const Clients = () => {
 
   const handleAddClient = () => {
     setIsModalOpen(true);
+  };
+
+  const handleDeleteClient = (client) => {
+    setClientToDelete(client);
+    setIsConfirmationModalOpen(true);
+  };
+
+  const confirmDeleteClient = async () => {
+    try {
+      await deleteClient(clientToDelete.id);
+      fetchClients();
+    } catch (error) {
+      console.error('Error deleting client:', error);
+    }
+    setIsConfirmationModalOpen(false);
+    setClientToDelete(null);
   };
 
   const filteredClients = clients.filter(client =>
@@ -226,13 +254,20 @@ const Clients = () => {
               <Td>{client.phone_number}</Td>
               <Td>
                 <Button><FaEdit /></Button>
-                <Button><FaTrash /></Button>
+                <Button onClick={() => handleDeleteClient(client)}><FaTrash /></Button>
               </Td>
             </tr>
           ))}
         </tbody>
       </Table>
       <AddClientModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} fetchClients={fetchClients} />
+      <ConfirmationModal
+        isOpen={isConfirmationModalOpen}
+        onClose={() => setIsConfirmationModalOpen(false)}
+        onConfirm={confirmDeleteClient}
+        title="Delete Client"
+        message={`Are you sure you want to delete ${clientToDelete?.display_name}?`}
+      />
     </PageContainer>
   );
 };

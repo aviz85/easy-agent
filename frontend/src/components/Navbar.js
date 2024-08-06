@@ -31,8 +31,8 @@ const Logo = styled(Link)`
 const NavLinksLeft = styled.div`
   display: flex;
   align-items: center;
-  margin-right: auto; // This will push the buttons to the left
-  margin-left: 2rem; // Small margin from the logo
+  margin-right: auto;
+  margin-left: 2rem;
 `;
 
 const NavLinksRight = styled.div`
@@ -195,7 +195,7 @@ const Navbar = () => {
           <>
             <NavLinksLeft>
               <NavLink to="/dashboard" className={location.pathname === '/dashboard' ? 'active' : ''}>Dashboard</NavLink>
-              <NavLink to="/create-agreement" className={location.pathname === '/create-agreement' ? 'active' : ''}>Create Agreement</NavLink>
+              <NavLink to="/agreements" className={location.pathname === '/agreements' ? 'active' : ''}>Agreements</NavLink>
               <NavLink to="/clients" className={location.pathname === '/clients' ? 'active' : ''}>Clients</NavLink>
             </NavLinksLeft>
             <NavLinksRight>

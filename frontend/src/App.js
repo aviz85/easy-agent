@@ -12,6 +12,7 @@ import Profile from './components/Profile';
 import CreateAgreement from './components/CreateAgreement';
 import { login } from './services/api';
 import Clients from './components/Clients';
+import Agreements from './components/Agreements';
 
 function App() {
   useEffect(() => {
@@ -69,6 +70,7 @@ function App() {
                   </PrivateRoute>
                 } 
               />
+              <Route path="/agreements" element={<PrivateRoute><Agreements /></PrivateRoute>} />
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </div>
