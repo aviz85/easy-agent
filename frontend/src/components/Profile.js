@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-import api from '../services/api';
+import { getProfile, updateProfile } from '../services/api';
 import Button from './common/Button';
 import Input from './common/Input';
 import Card from './common/Card';
@@ -51,7 +51,7 @@ const Profile = () => {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const response = await api.get('/profile/');
+        const response = await getProfile();
         setProfile(response.data);
       } catch (error) {
         console.error('Error fetching profile:', error);
@@ -68,7 +68,7 @@ const Profile = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await api.put('/profile/', profile);
+      await updateProfile(profile);
       setSuccessMessage('Profile updated successfully');
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {

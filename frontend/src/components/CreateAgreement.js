@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
-import api from '../services/api';
+import { createAgreement } from '../services/api';
 import Button from './common/Button';
 import Input from './common/Input';
 import Card from './common/Card';
@@ -80,7 +80,7 @@ const CreateAgreement = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/agreements/', agreement);
+      await createAgreement(agreement);
       setSuccessMessage('Agreement created successfully');
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {

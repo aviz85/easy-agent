@@ -196,6 +196,7 @@ const Navbar = () => {
             <NavLinksLeft>
               <NavLink to="/dashboard" className={location.pathname === '/dashboard' ? 'active' : ''}>Dashboard</NavLink>
               <NavLink to="/create-agreement" className={location.pathname === '/create-agreement' ? 'active' : ''}>Create Agreement</NavLink>
+              <NavLink to="/clients" className={location.pathname === '/clients' ? 'active' : ''}>Clients</NavLink>
             </NavLinksLeft>
             <NavLinksRight>
               <NotificationIcon onClick={handleNotificationClick} ref={notificationRef}>

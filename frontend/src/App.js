@@ -10,13 +10,14 @@ import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import Profile from './components/Profile';
 import CreateAgreement from './components/CreateAgreement';
-import api from './services/api';
+import { login } from './services/api';
+import Clients from './components/Clients';
 
 function App() {
   useEffect(() => {
     const testApiConnection = async () => {
       try {
-        const response = await api.get('/');
+        const response = await login('username', 'password');
         console.log('API connection successful:', response.data);
       } catch (error) {
         console.error('API connection failed:', error);
@@ -57,6 +58,14 @@ function App() {
                 element={
                   <PrivateRoute>
                     <CreateAgreement />
+                  </PrivateRoute>
+                } 
+              />
+              <Route 
+                path="/clients" 
+                element={
+                  <PrivateRoute>
+                    <Clients />
                   </PrivateRoute>
                 } 
               />

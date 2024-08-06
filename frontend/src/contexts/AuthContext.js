@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import api from '../services/api';
+import { login, getProfile } from '../services/api';
 
 const AuthContext = createContext();
 
@@ -12,7 +12,7 @@ export const AuthProvider = ({ children }) => {
     const token = localStorage.getItem('token');
     if (token) {
       // Fetch user data using the token
-      api.get('/profile/')
+      getProfile()
         .then(response => setUser(response.data))
         .catch(error => {
           console.error('Error fetching user data:', error);
